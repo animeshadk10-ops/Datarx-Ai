@@ -4,3 +4,10 @@ node_modules/
 __pycache__/
 *.pyc
 .next/
+dist/
+build/
+.DS_Store
+
+# Do NOT ignore model artifacts (they are meant to be committed)
+!backend/app/models/*.joblib
+!backend/app/models/*.json

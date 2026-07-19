@@ -84,7 +84,8 @@ def outlier_report(df: pd.DataFrame) -> list:
     rows = []
     numeric_df = df.select_dtypes(include=[np.number])
     for col in numeric_df.columns:
-        series = numeric_df[col].dropna()
+        # Exclude infinite values from being counted as standard outliers
+        series = numeric_df[col].replace([np.inf, -np.inf], np.nan).dropna()
         if series.empty:
             continue
         q1, q3 = series.quantile(0.25), series.quantile(0.75)
@@ -101,6 +102,185 @@ def outlier_report(df: pd.DataFrame) -> list:
     return rows
 
 
+def duplicate_row_report(df: pd.DataFrame, id_columns: list = None) -> dict:
+    subset = df.columns.difference(id_columns) if id_columns else df.columns
+    if len(subset) == 0 or df.empty:
+        return {"duplicate_row_count": 0, "duplicate_row_pct": 0.0, "duplicate_row_indices": []}
+    dup_mask = df.duplicated(subset=subset, keep=False)
+    dup_indices = df.index[dup_mask].tolist()
+    count = len(dup_indices)
+    pct = round(100 * count / len(df), 2)
+    return {
+        "duplicate_row_count": count,
+        "duplicate_row_pct": pct,
+        "duplicate_row_indices": dup_indices
+    }
+
+
+def duplicate_column_report(df: pd.DataFrame) -> dict:
+    if df.empty or df.shape[1] < 2:
+        return {"duplicate_column_pairs": []}
+        
+    pairs = []
+    hashes = {col: pd.util.hash_pandas_object(df[col], index=False).sum() for col in df.columns}
+    cols = list(df.columns)
+    
+    for i in range(len(cols)):
+        for j in range(i + 1, len(cols)):
+            col_a = cols[i]
+            col_b = cols[j]
+            if hashes[col_a] == hashes[col_b]:
+                if df[col_a].equals(df[col_b]):
+                    pairs.append({"col_a": col_a, "col_b": col_b})
+                    
+    return {"duplicate_column_pairs": pairs}
+
+
+def constant_feature_report(df: pd.DataFrame) -> list:
+    rows = []
+    if df.empty:
+        return rows
+    
+    for col in df.columns:
+        nunique = df[col].nunique(dropna=True)
+        if nunique == 1:
+            has_missing = df[col].isna().any()
+            val = df[col].dropna().iloc[0]
+            if isinstance(val, (np.integer, np.floating)):
+                val = val.item()
+            elif isinstance(val, (pd.Timestamp, pd.Timedelta)):
+                val = str(val)
+            rows.append({
+                "column": col,
+                "fully_constant": bool(not has_missing),
+                "constant_excluding_missing": bool(has_missing),
+                "constant_value": val
+            })
+    return rows
+
+
+def infinite_value_report(df: pd.DataFrame) -> list:
+    rows = []
+    numeric_df = df.select_dtypes(include=[np.number])
+    if numeric_df.empty:
+        return rows
+        
+    for col in numeric_df.columns:
+        inf_count = int(np.isinf(numeric_df[col]).sum())
+        if inf_count > 0:
+            rows.append({
+                "column": col,
+                "infinite_count": inf_count
+            })
+    return rows
+
+
+def rare_category_report(df: pd.DataFrame, rare_threshold_pct: float = 1.0) -> list:
+    rows = []
+    if df.empty:
+        return rows
+        
+    for col in df.columns:
+        if not pd.api.types.is_numeric_dtype(df[col]):
+            vc = df[col].value_counts(normalize=True) * 100
+            rare = vc[vc < rare_threshold_pct]
+            if not rare.empty:
+                rare_list = [{"value": str(k), "pct": round(float(v), 2)} for k, v in rare.items()]
+                rows.append({
+                    "column": col,
+                    "rare_categories": rare_list,
+                    "rare_category_count": len(rare_list)
+                })
+    return rows
+
+def generate_chart_data(df: pd.DataFrame, corr: pd.DataFrame) -> dict:
+    numeric_df = df.select_dtypes(include=[np.number])
+    numeric_charts = []
+    
+    for col in numeric_df.columns:
+        series = numeric_df[col].replace([np.inf, -np.inf], np.nan).dropna()
+        if series.empty:
+            continue
+        
+        q1, median, q3 = series.quantile([0.25, 0.5, 0.75])
+        iqr = q3 - q1
+        lower = q1 - 1.5 * iqr
+        upper = q3 + 1.5 * iqr
+        
+        # Calculate Histogram (20 bins)
+        try:
+            n_unique = max(1, series.nunique())
+            bins = min(20, n_unique) if n_unique < 20 else 20
+            counts, bin_edges = np.histogram(series, bins=bins)
+            histogram = [
+                {
+                    "bin_start": float(bin_edges[i]), 
+                    "bin_end": float(bin_edges[i+1]), 
+                    "count": int(counts[i])
+                } 
+                for i in range(len(counts))
+            ]
+        except Exception:
+            histogram = []
+        
+        numeric_charts.append({
+            "column": col,
+            "q1": float(q1),
+            "median": float(median),
+            "q3": float(q3),
+            "lower_bound": float(lower),
+            "upper_bound": float(upper),
+            "histogram": histogram
+        })
+        
+    categorical_charts = []
+    for col in df.columns:
+        if not pd.api.types.is_numeric_dtype(df[col]):
+            vc = df[col].value_counts().head(10)
+            value_counts = [{"value": str(k), "count": int(v)} for k, v in vc.items()]
+            if value_counts:
+                categorical_charts.append({
+                    "column": col,
+                    "value_counts": value_counts
+                })
+                
+    corr_matrix_data = []
+    if not corr.empty:
+        cols = corr.columns
+        for i in range(len(cols)):
+            for j in range(len(cols)):
+                r = corr.iloc[i, j]
+                if pd.notna(r):
+                    corr_matrix_data.append({"col_a": cols[i], "col_b": cols[j], "r": round(float(r), 3)})
+                    
+    scatter_samples = []
+    if not corr.empty:
+        cols = corr.columns
+        for i in range(len(cols)):
+            for j in range(i + 1, len(cols)):
+                r = corr.iloc[i, j]
+                if pd.notna(r) and abs(r) > 0.6:
+                    col_a = cols[i]
+                    col_b = cols[j]
+                    pair_df = df[[col_a, col_b]].dropna()
+                    if len(pair_df) > 300:
+                        pair_df = pair_df.sample(300, random_state=42)
+                    sample_data = [{"x": float(row[col_a]), "y": float(row[col_b])} for _, row in pair_df.iterrows()]
+                    scatter_samples.append({
+                        "col_a": col_a,
+                        "col_b": col_b,
+                        "r": round(float(r), 3),
+                        "sample": sample_data
+                    })
+    
+    return {
+        "numeric": numeric_charts,
+        "categorical": categorical_charts,
+        "correlation_matrix": corr_matrix_data,
+        "scatter_samples": scatter_samples
+    }
+
+
 def full_diagnosis(df: pd.DataFrame) -> dict:
     corr = correlation_matrix(df)
     return {
@@ -111,4 +291,10 @@ def full_diagnosis(df: pd.DataFrame) -> dict:
         "correlated_pairs": flagged_correlation_pairs(corr),
         "outliers": outlier_report(df),
         "multivariate_outliers": detect_multivariate_outliers(df),
+        "duplicate_rows": duplicate_row_report(df),
+        "duplicate_columns": duplicate_column_report(df),
+        "constant_features": constant_feature_report(df),
+        "infinite_values": infinite_value_report(df),
+        "rare_categories": rare_category_report(df),
+        "chart_data": generate_chart_data(df, corr)
     }

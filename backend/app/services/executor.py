@@ -72,10 +72,16 @@ def execute_action(
 
     elif action == RecommendedAction.merge_categories:
         if column in result_df.columns:
-            # Simple heuristic: case-normalization (lowercase + strip whitespace)
-            # Not a full fuzzy-matching algorithm.
+            # 1. Case-normalization (lowercase + strip whitespace)
             if pd.api.types.is_string_dtype(result_df[column]):
                 result_df[column] = result_df[column].str.lower().str.strip()
+            
+            # 2. Rare-category consolidation into "Other"
+            if not pd.api.types.is_numeric_dtype(result_df[column]):
+                vc = result_df[column].value_counts(normalize=True) * 100
+                rare_categories = vc[vc < 1.0].index
+                if len(rare_categories) > 0:
+                    result_df.loc[result_df[column].isin(rare_categories), column] = "Other"
 
     elif action == RecommendedAction.none:
         pass  # no-op

@@ -23,7 +23,7 @@ export default function CategoricalBarChart({ data }: Props) {
         <BarChart
           data={data.value_counts}
           layout="vertical"
-          margin={{ top: 10, right: 30, left: 10, bottom: 0 }}
+          margin={{ top: 10, right: 30, left: 20, bottom: 15 }}
         >
           <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" horizontal={false} />
           <XAxis 
@@ -31,7 +31,7 @@ export default function CategoricalBarChart({ data }: Props) {
             stroke="var(--text-muted)" 
             fontSize={11} 
             tickFormatter={(val) => val >= 1000 ? `${(val/1000).toFixed(1)}k` : val} 
-            label={{ value: 'Count', position: 'insideBottom', offset: -5, fill: 'var(--text-muted)', fontSize: 12 }} 
+            label={{ value: 'Count', position: 'insideBottom', offset: -10, fill: 'var(--text-muted)', fontSize: 12 }} 
           />
           <YAxis
             dataKey="value"
@@ -40,7 +40,7 @@ export default function CategoricalBarChart({ data }: Props) {
             fontSize={11}
             width={80}
             tickFormatter={(val) => val.length > 10 ? val.substring(0, 10) + '...' : val}
-            label={{ value: data.column, angle: -90, position: 'insideLeft', offset: -20, fill: 'var(--text-muted)', fontSize: 12 }}
+            label={{ value: data.column, angle: -90, position: 'insideLeft', offset: -15, fill: 'var(--text-muted)', fontSize: 12 }}
           />
           <Tooltip
             contentStyle={{ backgroundColor: "var(--surface-elevated)", borderColor: "var(--border-subtle)", borderRadius: 8, color: "var(--text-primary)" }}

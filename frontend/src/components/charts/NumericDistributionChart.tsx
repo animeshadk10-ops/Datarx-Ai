@@ -46,20 +46,20 @@ export default function NumericDistributionChart({ data }: Props) {
       {/* Histogram */}
       <div className="flex-1 min-h-[150px]">
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+          <BarChart data={chartData} margin={{ top: 10, right: 10, left: 10, bottom: 15 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" vertical={false} />
             <XAxis 
               dataKey="mid" 
               tickFormatter={(val) => val.toFixed(1)} 
               stroke="var(--text-muted)" 
               fontSize={11} 
-              label={{ value: data.column, position: 'insideBottom', offset: -5, fill: 'var(--text-muted)', fontSize: 12 }} 
+              label={{ value: data.column, position: 'insideBottom', offset: -10, fill: 'var(--text-muted)', fontSize: 12 }} 
             />
             <YAxis 
               stroke="var(--text-muted)" 
               fontSize={11} 
               tickFormatter={(val) => val >= 1000 ? `${(val/1000).toFixed(1)}k` : val} 
-              label={{ value: 'Frequency', angle: -90, position: 'insideLeft', offset: 10, fill: 'var(--text-muted)', fontSize: 12 }} 
+              label={{ value: 'Frequency', angle: -90, position: 'insideLeft', offset: 5, fill: 'var(--text-muted)', fontSize: 12 }} 
             />
             <Tooltip
               contentStyle={{ backgroundColor: "var(--surface-elevated)", borderColor: "var(--border-subtle)", borderRadius: 8, color: "var(--text-primary)" }}

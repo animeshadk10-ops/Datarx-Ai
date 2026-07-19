@@ -7,9 +7,12 @@ from typing import Any, TypedDict
 
 import pandas as pd
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_google_genai import ChatGoogleGenerativeAI
+import httpx
+from langchain_core.messages import AIMessage
 from langgraph.graph import END, StateGraph
 from pydantic import ValidationError
+import logging
+from pathlib import Path
 
 from app.core.config import GOOGLE_API_KEY, MODEL_NAME
 from app.models.enums import RecommendedAction, SemanticType
@@ -24,21 +27,40 @@ _PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 CLASSIFY_SYSTEM_PROMPT = (_PROMPTS_DIR / "classify_system.txt").read_text(encoding="utf-8")
 REASON_SYSTEM_PROMPT = (_PROMPTS_DIR / "reason_system.txt").read_text(encoding="utf-8")
 
-# ---------------------------------------------------------------------------
-# LLM instance (re-used across calls)
-# ---------------------------------------------------------------------------
-_llm = ChatGoogleGenerativeAI(
-    model=MODEL_NAME,
-    google_api_key=GOOGLE_API_KEY,
-    temperature=0.0,
-    convert_system_message_to_human=True,
-)
+class RawRESTGemini:
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+        self.url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={self.api_key}"
+
+    async def ainvoke(self, messages: list) -> AIMessage:
+        prompt_text = "\n\n".join([getattr(msg, "content", str(msg)) for msg in messages])
+        payload = {
+            "contents": [{"parts": [{"text": prompt_text}]}]
+        }
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            resp = await client.post(self.url, json=payload)
+            if not resp.is_success:
+                try:
+                    error_data = resp.json()
+                    error_msg = error_data.get("error", {}).get("message", resp.text)
+                except Exception:
+                    error_msg = resp.text
+                raise ValueError(f"Gemini API Error {resp.status_code}: {error_msg}")
+            data = resp.json()
+            try:
+                text = data["candidates"][0]["content"]["parts"][0]["text"]
+                return AIMessage(content=text)
+            except (KeyError, IndexError):
+                raise ValueError(f"Unexpected response from Gemini: {data}")
+
+_llm = RawRESTGemini(api_key=GOOGLE_API_KEY)
 
 
 # ---------------------------------------------------------------------------
 # Graph state
 # ---------------------------------------------------------------------------
 class PipelineState(TypedDict, total=False):
+    df_raw: pd.DataFrame
     diagnosis: dict
     df_sample_payload: str  # JSON string sent to classify node
     has_flagged_columns: bool
@@ -74,8 +96,16 @@ def _build_classify_payload(df: pd.DataFrame, diagnosis: dict) -> str:
     return json.dumps(items, indent=2, default=str)
 
 
-def _extract_json(text: str) -> Any:
+def _extract_json(text: Any) -> Any:
     """Strip markdown fences and parse JSON from LLM response."""
+    print(f"DEBUG _extract_json type: {type(text)}")
+    if isinstance(text, list):
+        if len(text) > 0 and isinstance(text[0], dict) and "text" in text[0]:
+            text = text[0]["text"]
+        else:
+            text = str(text)
+    if not isinstance(text, str):
+        text = str(text)
     cleaned = text.strip()
     if cleaned.startswith("```"):
         # Remove ```json ... ``` or ``` ... ```
@@ -95,6 +125,24 @@ def _check_flagged(diagnosis: dict) -> bool:
             return True
     if diagnosis.get("correlated_pairs"):
         return True
+    # Check additional diagnostic categories
+    dup_rows = diagnosis.get("duplicate_rows", {})
+    if dup_rows.get("duplicate_row_count", 0) > 0:
+        return True
+    dup_cols = diagnosis.get("duplicate_columns", {})
+    if dup_cols.get("duplicate_column_pairs") and len(dup_cols["duplicate_column_pairs"]) > 0:
+        return True
+    if diagnosis.get("constant_features"):
+        return True
+    if diagnosis.get("infinite_values"):
+        return True
+    if diagnosis.get("rare_categories"):
+        return True
+    for c in diagnosis.get("cardinality", []):
+        if c.get("flagged_high_cardinality", False):
+            return True
+    if diagnosis.get("multivariate_outliers"):
+        return True
     return False
 
 
@@ -107,12 +155,35 @@ def _build_reason_payload(diagnosis: dict, semantic_types: list[dict]) -> str:
     flagged_outliers = [
         o for o in diagnosis.get("outliers", []) if o.get("outlier_count", 0) > 0
     ]
-    payload = {
+    payload: dict = {
         "missingness": flagged_missing,
         "outliers": flagged_outliers,
         "correlated_pairs": diagnosis.get("correlated_pairs", []),
         "semantic_types": semantic_types,
     }
+    # Include additional diagnostic data for comprehensive reasoning
+    dup_rows = diagnosis.get("duplicate_rows", {})
+    if dup_rows.get("duplicate_row_count", 0) > 0:
+        payload["duplicate_rows"] = {
+            "count": dup_rows["duplicate_row_count"],
+            "pct": dup_rows.get("duplicate_row_pct", 0),
+        }
+    dup_cols = diagnosis.get("duplicate_columns", {})
+    if dup_cols.get("duplicate_column_pairs"):
+        payload["duplicate_columns"] = dup_cols["duplicate_column_pairs"]
+    if diagnosis.get("constant_features"):
+        payload["constant_features"] = diagnosis["constant_features"]
+    if diagnosis.get("infinite_values"):
+        payload["infinite_values"] = diagnosis["infinite_values"]
+    if diagnosis.get("rare_categories"):
+        payload["rare_categories"] = diagnosis["rare_categories"]
+    flagged_cardinality = [
+        c for c in diagnosis.get("cardinality", []) if c.get("flagged_high_cardinality", False)
+    ]
+    if flagged_cardinality:
+        payload["high_cardinality"] = flagged_cardinality
+    if diagnosis.get("multivariate_outliers"):
+        payload["multivariate_outlier_count"] = len(diagnosis["multivariate_outliers"])
     target_purpose = diagnosis.get("target_purpose")
     if target_purpose:
         payload["target_purpose"] = target_purpose
@@ -283,7 +354,8 @@ async def reason_node(state: PipelineState) -> dict:
                 errors.append(f"reason attempt {attempt_idx}-{retry}: {exc!s}")
         return []
 
-    results = await asyncio.gather(*[fetch_reasoning(i) for i in range(3)])
+    # We will only run 1 attempt to avoid rate limits on free-tier API keys.
+    results = await asyncio.gather(*[fetch_reasoning(i) for i in range(1)])
     
     col_recs = defaultdict(list)
     for res_list in results:
@@ -305,8 +377,8 @@ async def reason_node(state: PipelineState) -> dict:
         avg_conf = sum(matching_conf) / len(matching_conf) if matching_conf else rep["confidence"]
         rep["confidence"] = avg_conf
         
-        # If less than 2 models agreed, it needs human review
-        rep["needs_review"] = count < 2 or len(recs) < 2
+        # Since we are only running 1 model call, we don't need consensus.
+        rep["needs_review"] = False
         
         final_recs.append(rep)
 

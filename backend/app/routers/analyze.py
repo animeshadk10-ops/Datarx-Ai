@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException
 
 from app.models.schemas import AnalyzeRequest, AnalyzeResponse
 from app.services import session_store, stats_engine
-from app.services.llm_pipeline import run_analysis_pipeline
+from app.services.llm_pipeline import run_analysis_pipeline, _check_flagged
 
 router = APIRouter(tags=["Analyze"])
 
@@ -25,22 +25,17 @@ async def analyze_data(request: AnalyzeRequest):
 
     errors = result.get("errors", [])
     
-    # Simple check for whether the dataset has any issues flagged
-    has_flagged = False
-    for m in diagnosis.get("missingness", []):
-        if m.get("missing_pct", 0) > 0: has_flagged = True
-    for o in diagnosis.get("outliers", []):
-        if o.get("outlier_count", 0) > 0: has_flagged = True
-    if diagnosis.get("correlated_pairs"):
-        has_flagged = True
+    has_flagged = _check_flagged(diagnosis)
         
     # Check if the pipeline failed to generate expected recommendations due to an LLM error (like invalid API key)
     # OR if it failed completely to get any semantic types.
     if errors:
         if (has_flagged and not result.get("recommendations")) or (not result.get("semantic_types")):
-            # If there are errors (e.g. 403 Forbidden, API key invalid) and it returned empty when we expected data, 
+            # If there are errors (e.g. 403 Forbidden, API key invalid, Rate Limit) and it returned empty when we expected data, 
             # it's a silent failure. We should raise an exception so the frontend displays the error.
             error_msg = errors[-1] # The last error is usually the fatal one
+            if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
+                raise HTTPException(status_code=502, detail="AI Analysis failed: Gemini Free Tier API rate limit exceeded. Please wait a minute and try again.")
             raise HTTPException(status_code=502, detail=f"AI Analysis failed: {error_msg}. Please check your API key and network connection.")
 
     return AnalyzeResponse(

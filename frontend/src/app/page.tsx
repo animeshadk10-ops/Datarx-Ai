@@ -105,12 +105,30 @@ export default function Home() {
       setSemanticTypes(res.semantic_types);
       setTargetAnalysis(res.target_analysis || null);
       setStep("recommendations");
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Analysis failed.";
+    } catch (err: any) {
+      const msg = err.response?.data?.detail || err.message || "Analysis failed.";
       setAnalyzeError(msg);
       setStep("diagnostics");
     }
   }, [sessionId, targetColumn, targetPurpose]);
+
+  const canGoBack = step !== "upload" && step !== "analyzing";
+  const goBack = () => {
+    if (step === "targetSelection") setStep("upload");
+    else if (step === "diagnostics") setStep("targetSelection");
+    else if (step === "recommendations" || step === "done") setStep("diagnostics");
+  };
+
+  const canGoNext = 
+    (step === "upload" && diagnosis !== null) || 
+    (step === "targetSelection" && diagnosis !== null) || 
+    (step === "diagnostics" && recommendations && recommendations.length > 0);
+
+  const goNext = () => {
+    if (step === "upload" && diagnosis) setStep("targetSelection");
+    else if (step === "targetSelection" && diagnosis) setStep("diagnostics");
+    else if (step === "diagnostics" && recommendations.length > 0) setStep("recommendations");
+  };
 
   const currentIdx = stepIndex(step);
 
@@ -198,18 +216,53 @@ export default function Home() {
       </div>
 
       {/* ── Main Content ──────────────────────────────────── */}
-      <main className="flex-1 px-4 sm:px-6 pb-16 max-w-5xl mx-auto w-full relative">
-        {/* Tracker */}
+      <main className="flex-1 px-4 sm:px-6 pb-16 max-w-[90rem] mx-auto w-full relative flex flex-col xl:flex-row gap-8 items-start">
+        {/* Mobile/Tablet Tracker */}
         {step !== "upload" && (
-          <>
-            <div className="hidden lg:block absolute -right-72 top-0 w-64 z-50">
-              <ConceptTracker seenConcepts={seenConcepts} />
-            </div>
-            <div className="lg:hidden mb-6">
-              <ConceptTracker seenConcepts={seenConcepts} />
-            </div>
-          </>
+          <div className="xl:hidden w-full max-w-5xl mx-auto mb-2">
+            <ConceptTracker seenConcepts={seenConcepts} />
+          </div>
         )}
+
+        {/* Left Column (Main) */}
+        <div className="flex-1 min-w-0 w-full max-w-5xl mx-auto">
+          {/* ── Global Navigation ────────────────────────────── */}
+        {step !== "analyzing" && (
+          <div className="flex justify-start mb-6 z-20 relative">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={goBack}
+                disabled={!canGoBack}
+                className={`flex items-center gap-1.5 px-4 py-2 rounded-lg font-medium text-sm transition-all ${
+                  canGoBack 
+                    ? "bg-surface-elevated text-text-primary hover:bg-surface border border-border-subtle shadow-sm"
+                    : "opacity-50 cursor-not-allowed text-text-muted bg-transparent border border-transparent"
+                }`}
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                </svg>
+                Back
+              </button>
+              
+              <button
+                onClick={goNext}
+                disabled={!canGoNext}
+                className={`flex items-center gap-1.5 px-4 py-2 rounded-lg font-medium text-sm transition-all ${
+                  canGoNext
+                    ? "bg-gradient-to-r from-[var(--accent-primary)] to-[var(--accent-secondary)] text-white shadow-md hover:shadow-lg hover:-translate-y-0.5"
+                    : "opacity-50 cursor-not-allowed text-text-muted bg-surface-elevated border border-border-subtle"
+                }`}
+              >
+                Next
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        )}
+
 
         <AnimatePresence mode="wait">
           {/* Step 1: Upload */}
@@ -418,6 +471,14 @@ export default function Home() {
             </motion.div>
           )}
         </AnimatePresence>
+        </div>
+
+        {/* Desktop Tracker (Right Column) */}
+        {step !== "upload" && (
+          <div className="hidden xl:block w-72 shrink-0 sticky top-6 z-50">
+            <ConceptTracker seenConcepts={seenConcepts} />
+          </div>
+        )}
       </main>
 
       {/* ── Footer ────────────────────────────────────────── */}

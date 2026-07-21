@@ -34,7 +34,7 @@ export default function ScatterPlotChart({ data }: Props) {
               stroke="var(--text-muted)" 
               fontSize={11} 
               tickFormatter={(val) => val >= 1000 ? `${(val/1000).toFixed(1)}k` : val} 
-              label={{ value: data.col_a, position: 'insideBottom', offset: -5, fill: 'var(--text-muted)', fontSize: 12 }} 
+              label={{ value: data.col_a, position: 'insideBottom', offset: -10, fill: 'var(--text-muted)', fontSize: 12 }} 
             />
             <YAxis 
               type="number" 

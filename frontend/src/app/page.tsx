@@ -23,18 +23,20 @@ import TargetSelectionForm from "@/components/TargetSelectionForm";
 import TargetAnalysisPanel from "@/components/TargetAnalysisPanel";
 import type { TargetAnalysis } from "@/lib/api";
 import { useSession } from "@/lib/SessionContext";
+import SummaryReport from "@/components/SummaryReport";
 
-type Step = "upload" | "targetSelection" | "diagnostics" | "analyzing" | "recommendations" | "done";
+type Step = "upload" | "targetSelection" | "diagnostics" | "analyzing" | "recommendations" | "summary" | "done";
 
 const STEPS = [
   { key: "upload", label: "Upload", icon: "↑" },
   { key: "diagnostics", label: "Diagnose", icon: "🔍" },
   { key: "recommendations", label: "AI Analysis", icon: "✦" },
+  { key: "summary", label: "Summary", icon: "📋" },
   { key: "done", label: "Export", icon: "↓" },
 ] as const;
 
 function stepIndex(step: Step): number {
-  const map: Record<Step, number> = { upload: 0, targetSelection: 0, diagnostics: 1, analyzing: 2, recommendations: 2, done: 3 };
+  const map: Record<Step, number> = { upload: 0, targetSelection: 0, diagnostics: 1, analyzing: 2, recommendations: 2, summary: 3, done: 4 };
   return map[step];
 }
 
@@ -66,10 +68,24 @@ export default function Home() {
     setTargetPurpose,
     targetAnalysis,
     setTargetAnalysis,
+    clearSession,
   } = useSession();
 
   const { seenConcepts, markSeen, hasSeen } = useConceptTracker();
   const { theme, toggleTheme } = useTheme();
+
+  // Handle restoring state when navigating back from graphs page to "/"
+  React.useEffect(() => {
+    // We only want to run this if we are newly mounted and stuck on "upload"
+    // but the session already has a diagnosis.
+    if (step === "upload" && diagnosis) {
+      if (recommendations && recommendations.length > 0) {
+        setStep("recommendations");
+      } else {
+        setStep("diagnostics");
+      }
+    }
+  }, [diagnosis, recommendations]); // Intentionally not including `step` to avoid continuous triggers if they legitimately go back to upload
 
   /* ── Upload handler ─────────────────────────────────────── */
   const handleUpload = useCallback(async (file: File) => {
@@ -105,12 +121,38 @@ export default function Home() {
       setSemanticTypes(res.semantic_types);
       setTargetAnalysis(res.target_analysis || null);
       setStep("recommendations");
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Analysis failed.";
+    } catch (err: any) {
+      const msg = err.response?.data?.detail || err.message || "Analysis failed.";
       setAnalyzeError(msg);
       setStep("diagnostics");
     }
   }, [sessionId, targetColumn, targetPurpose]);
+
+  const canGoBack = step !== "upload" && step !== "analyzing";
+  const goBack = () => {
+    if (step === "targetSelection") setStep("upload");
+    else if (step === "diagnostics") setStep("targetSelection");
+    else if (step === "recommendations") setStep("diagnostics");
+    else if (step === "summary" || step === "done") setStep("recommendations");
+  };
+
+  const canGoNext = 
+    (step === "upload" && diagnosis !== null) || 
+    (step === "targetSelection" && diagnosis !== null) || 
+    (step === "diagnostics" && recommendations && recommendations.length > 0) ||
+    (step === "recommendations");
+
+  const goNext = () => {
+    if (step === "upload" && diagnosis) setStep("targetSelection");
+    else if (step === "targetSelection" && diagnosis) setStep("diagnostics");
+    else if (step === "diagnostics" && recommendations.length > 0) setStep("recommendations");
+    else if (step === "recommendations") setStep("summary");
+  };
+
+  const handleReset = useCallback(() => {
+    clearSession();
+    setStep("upload");
+  }, [clearSession]);
 
   const currentIdx = stepIndex(step);
 
@@ -198,18 +240,53 @@ export default function Home() {
       </div>
 
       {/* ── Main Content ──────────────────────────────────── */}
-      <main className="flex-1 px-4 sm:px-6 pb-16 max-w-5xl mx-auto w-full relative">
-        {/* Tracker */}
+      <main className="flex-1 px-4 sm:px-6 pb-16 max-w-[90rem] mx-auto w-full relative flex flex-col xl:flex-row gap-8 items-start">
+        {/* Mobile/Tablet Tracker */}
         {step !== "upload" && (
-          <>
-            <div className="hidden lg:block absolute -right-72 top-0 w-64 z-50">
-              <ConceptTracker seenConcepts={seenConcepts} />
-            </div>
-            <div className="lg:hidden mb-6">
-              <ConceptTracker seenConcepts={seenConcepts} />
-            </div>
-          </>
+          <div className="xl:hidden w-full max-w-5xl mx-auto mb-2">
+            <ConceptTracker seenConcepts={seenConcepts} />
+          </div>
         )}
+
+        {/* Left Column (Main) */}
+        <div className="flex-1 min-w-0 w-full max-w-5xl mx-auto">
+          {/* ── Global Navigation ────────────────────────────── */}
+        {step !== "analyzing" && (
+          <div className="flex justify-start mb-6 z-20 relative">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={goBack}
+                disabled={!canGoBack}
+                className={`flex items-center gap-1.5 px-4 py-2 rounded-lg font-medium text-sm transition-all ${
+                  canGoBack 
+                    ? "bg-surface-elevated text-text-primary hover:bg-surface border border-border-subtle shadow-sm"
+                    : "opacity-50 cursor-not-allowed text-text-muted bg-transparent border border-transparent"
+                }`}
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                </svg>
+                Back
+              </button>
+              
+              <button
+                onClick={goNext}
+                disabled={!canGoNext}
+                className={`flex items-center gap-1.5 px-4 py-2 rounded-lg font-medium text-sm transition-all ${
+                  canGoNext
+                    ? "bg-gradient-to-r from-[var(--accent-primary)] to-[var(--accent-secondary)] text-white shadow-md hover:shadow-lg hover:-translate-y-0.5"
+                    : "opacity-50 cursor-not-allowed text-text-muted bg-surface-elevated border border-border-subtle"
+                }`}
+              >
+                Next
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        )}
+
 
         <AnimatePresence mode="wait">
           {/* Step 1: Upload */}
@@ -228,6 +305,8 @@ export default function Home() {
             <motion.div key="targetSelection" {...pageTransition}>
               <TargetSelectionForm
                 columns={diagnosis.dtypes.map((d) => d.column)}
+                initialTargetColumn={targetColumn}
+                initialTargetPurpose={targetPurpose}
                 onConfirm={handleTargetConfirm}
               />
             </motion.div>
@@ -390,7 +469,6 @@ export default function Home() {
                               if (res.full_diagnosis) {
                                 setDiagnosis(res.full_diagnosis);
                               }
-                              if (step !== "done") setStep("done");
                             }}
                           />
                         </GuessBeforeReveal>
@@ -408,16 +486,43 @@ export default function Home() {
                 </div>
               )}
 
-              {/* Export section */}
+              {/* Transition to Summary section */}
               {sessionId && (
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }} className="pt-4 flex flex-col items-center gap-4">
                   <div className="h-px w-32 bg-gradient-to-r from-transparent via-border-subtle to-transparent" />
-                  <ExportButton sessionId={sessionId} />
+                  <button
+                    onClick={() => setStep("summary")}
+                    className="group relative px-10 py-4 rounded-2xl text-white font-bold text-lg flex items-center gap-3 transition-all duration-300 btn-gradient shadow-lg hover:shadow-[0_0_30px_rgba(255,148,8,0.3)] hover:-translate-y-1"
+                  >
+                    Review Changes & Export
+                    <svg className="w-5 h-5 group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                    </svg>
+                  </button>
                 </motion.div>
               )}
             </motion.div>
           )}
+
+          {/* Step 4: Summary */}
+          {step === "summary" && sessionId && (
+            <motion.div key="summary" {...pageTransition}>
+              <SummaryReport 
+                sessionId={sessionId} 
+                skippedIssues={recommendations} 
+                onReset={handleReset}
+              />
+            </motion.div>
+          )}
         </AnimatePresence>
+        </div>
+
+        {/* Desktop Tracker (Right Column) */}
+        {step !== "upload" && (
+          <div className="hidden xl:block w-72 shrink-0 sticky top-6 z-50">
+            <ConceptTracker seenConcepts={seenConcepts} />
+          </div>
+        )}
       </main>
 
       {/* ── Footer ────────────────────────────────────────── */}

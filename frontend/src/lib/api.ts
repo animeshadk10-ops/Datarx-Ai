@@ -4,7 +4,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 const api = axios.create({
   baseURL: API_BASE,
-  timeout: 120_000,
+  timeout: 600_000,
 });
 
 /* ────────────────────────── Types ────────────────────────── */
@@ -208,6 +208,21 @@ export interface ApplyActionResponse {
   full_diagnosis: Diagnosis;
 }
 
+export interface ActionSummary {
+  column: string;
+  action: string;
+  justification: string;
+  before: ColumnStats;
+  after: ColumnStats;
+}
+
+export interface SummaryResponse {
+  original_shape: { rows: number; columns: number };
+  final_shape: { rows: number; columns: number };
+  actions_applied: ActionSummary[];
+  export_ready: boolean;
+}
+
 /* ────────────────────────── API Calls ────────────────────────── */
 
 export async function uploadFile(file: File): Promise<UploadResponse> {
@@ -235,12 +250,14 @@ export async function analyzeData(
 export async function applyAction(
   sessionId: string,
   column: string,
-  action: string
+  action: string,
+  justification: string
 ): Promise<ApplyActionResponse> {
   const { data } = await api.post<ApplyActionResponse>("/apply-action", {
     session_id: sessionId,
     column,
     action,
+    justification,
   });
   return data;
 }
@@ -250,14 +267,26 @@ export async function getRecommendations(sessionId: string): Promise<Recommendat
   return res.data.recommendations;
 }
 
+export async function fetchSummary(sessionId: string): Promise<SummaryResponse> {
+  const { data } = await api.get<SummaryResponse>(`/session/${sessionId}/summary`);
+  return data;
+}
+
 export async function exportData(sessionId: string): Promise<void> {
   const url = getExportUrl(sessionId);
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Export failed: ${response.statusText}`);
+  }
+  const blob = await response.blob();
+  const blobUrl = URL.createObjectURL(blob);
   const link = document.createElement("a");
-  link.href = url;
+  link.href = blobUrl;
   link.download = `datarx_cleaned_${sessionId}.csv`;
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
+  URL.revokeObjectURL(blobUrl);
 }
 
 export function getExportUrl(sessionId: string): string {

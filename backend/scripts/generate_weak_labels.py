@@ -68,7 +68,7 @@ def _call_gemini_batch(batch: list[dict]) -> list[str]:
 
     prompt = _build_batch_prompt(batch)
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
+        model="gemini-3.5-flash",
         contents=prompt,
     )
 

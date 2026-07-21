@@ -5,12 +5,14 @@ import { motion } from "framer-motion";
 
 interface TargetSelectionFormProps {
   columns: string[];
+  initialTargetColumn?: string;
+  initialTargetPurpose?: string;
   onConfirm: (targetColumn?: string, targetPurpose?: string) => void;
 }
 
-export default function TargetSelectionForm({ columns, onConfirm }: TargetSelectionFormProps) {
-  const [targetColumn, setTargetColumn] = useState<string>("");
-  const [targetPurpose, setTargetPurpose] = useState<string>("");
+export default function TargetSelectionForm({ columns, initialTargetColumn, initialTargetPurpose, onConfirm }: TargetSelectionFormProps) {
+  const [targetColumn, setTargetColumn] = useState<string>(initialTargetColumn || "");
+  const [targetPurpose, setTargetPurpose] = useState<string>(initialTargetPurpose || "");
 
   return (
     <motion.div 

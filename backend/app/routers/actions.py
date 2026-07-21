@@ -40,6 +40,15 @@ async def apply_action(request: ActionRequest):
         df, request.column, request.action
     )
     session_store.update_session(request.session_id, modified_df)
+    
+    session_store.log_action(
+        session_id=request.session_id,
+        column=request.column,
+        action=request.action.value,
+        justification=request.justification,
+        before=before_stats,
+        after=after_stats
+    )
 
     from app.services import stats_engine
     full_diagnosis = stats_engine.full_diagnosis(modified_df)

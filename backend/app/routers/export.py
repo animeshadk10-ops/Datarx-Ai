@@ -7,7 +7,16 @@ from fastapi.responses import StreamingResponse
 
 from app.services import session_store
 
+from app.models.schemas import SummaryResponse
+
 router = APIRouter(tags=["Export"])
+
+@router.get("/session/{session_id}/summary", response_model=SummaryResponse)
+async def get_summary(session_id: str):
+    summary = session_store.get_summary(session_id)
+    if not summary:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return summary
 
 
 @router.get("/export/{session_id}")

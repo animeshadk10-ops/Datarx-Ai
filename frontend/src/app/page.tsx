@@ -23,18 +23,20 @@ import TargetSelectionForm from "@/components/TargetSelectionForm";
 import TargetAnalysisPanel from "@/components/TargetAnalysisPanel";
 import type { TargetAnalysis } from "@/lib/api";
 import { useSession } from "@/lib/SessionContext";
+import SummaryReport from "@/components/SummaryReport";
 
-type Step = "upload" | "targetSelection" | "diagnostics" | "analyzing" | "recommendations" | "done";
+type Step = "upload" | "targetSelection" | "diagnostics" | "analyzing" | "recommendations" | "summary" | "done";
 
 const STEPS = [
   { key: "upload", label: "Upload", icon: "↑" },
   { key: "diagnostics", label: "Diagnose", icon: "🔍" },
   { key: "recommendations", label: "AI Analysis", icon: "✦" },
+  { key: "summary", label: "Summary", icon: "📋" },
   { key: "done", label: "Export", icon: "↓" },
 ] as const;
 
 function stepIndex(step: Step): number {
-  const map: Record<Step, number> = { upload: 0, targetSelection: 0, diagnostics: 1, analyzing: 2, recommendations: 2, done: 3 };
+  const map: Record<Step, number> = { upload: 0, targetSelection: 0, diagnostics: 1, analyzing: 2, recommendations: 2, summary: 3, done: 4 };
   return map[step];
 }
 
@@ -66,10 +68,24 @@ export default function Home() {
     setTargetPurpose,
     targetAnalysis,
     setTargetAnalysis,
+    clearSession,
   } = useSession();
 
   const { seenConcepts, markSeen, hasSeen } = useConceptTracker();
   const { theme, toggleTheme } = useTheme();
+
+  // Handle restoring state when navigating back from graphs page to "/"
+  React.useEffect(() => {
+    // We only want to run this if we are newly mounted and stuck on "upload"
+    // but the session already has a diagnosis.
+    if (step === "upload" && diagnosis) {
+      if (recommendations && recommendations.length > 0) {
+        setStep("recommendations");
+      } else {
+        setStep("diagnostics");
+      }
+    }
+  }, [diagnosis, recommendations]); // Intentionally not including `step` to avoid continuous triggers if they legitimately go back to upload
 
   /* ── Upload handler ─────────────────────────────────────── */
   const handleUpload = useCallback(async (file: File) => {
@@ -116,19 +132,27 @@ export default function Home() {
   const goBack = () => {
     if (step === "targetSelection") setStep("upload");
     else if (step === "diagnostics") setStep("targetSelection");
-    else if (step === "recommendations" || step === "done") setStep("diagnostics");
+    else if (step === "recommendations") setStep("diagnostics");
+    else if (step === "summary" || step === "done") setStep("recommendations");
   };
 
   const canGoNext = 
     (step === "upload" && diagnosis !== null) || 
     (step === "targetSelection" && diagnosis !== null) || 
-    (step === "diagnostics" && recommendations && recommendations.length > 0);
+    (step === "diagnostics" && recommendations && recommendations.length > 0) ||
+    (step === "recommendations");
 
   const goNext = () => {
     if (step === "upload" && diagnosis) setStep("targetSelection");
     else if (step === "targetSelection" && diagnosis) setStep("diagnostics");
     else if (step === "diagnostics" && recommendations.length > 0) setStep("recommendations");
+    else if (step === "recommendations") setStep("summary");
   };
+
+  const handleReset = useCallback(() => {
+    clearSession();
+    setStep("upload");
+  }, [clearSession]);
 
   const currentIdx = stepIndex(step);
 
@@ -281,6 +305,8 @@ export default function Home() {
             <motion.div key="targetSelection" {...pageTransition}>
               <TargetSelectionForm
                 columns={diagnosis.dtypes.map((d) => d.column)}
+                initialTargetColumn={targetColumn}
+                initialTargetPurpose={targetPurpose}
                 onConfirm={handleTargetConfirm}
               />
             </motion.div>
@@ -443,7 +469,6 @@ export default function Home() {
                               if (res.full_diagnosis) {
                                 setDiagnosis(res.full_diagnosis);
                               }
-                              if (step !== "done") setStep("done");
                             }}
                           />
                         </GuessBeforeReveal>
@@ -461,13 +486,32 @@ export default function Home() {
                 </div>
               )}
 
-              {/* Export section */}
+              {/* Transition to Summary section */}
               {sessionId && (
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }} className="pt-4 flex flex-col items-center gap-4">
                   <div className="h-px w-32 bg-gradient-to-r from-transparent via-border-subtle to-transparent" />
-                  <ExportButton sessionId={sessionId} />
+                  <button
+                    onClick={() => setStep("summary")}
+                    className="group relative px-10 py-4 rounded-2xl text-white font-bold text-lg flex items-center gap-3 transition-all duration-300 btn-gradient shadow-lg hover:shadow-[0_0_30px_rgba(255,148,8,0.3)] hover:-translate-y-1"
+                  >
+                    Review Changes & Export
+                    <svg className="w-5 h-5 group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                    </svg>
+                  </button>
                 </motion.div>
               )}
+            </motion.div>
+          )}
+
+          {/* Step 4: Summary */}
+          {step === "summary" && sessionId && (
+            <motion.div key="summary" {...pageTransition}>
+              <SummaryReport 
+                sessionId={sessionId} 
+                skippedIssues={recommendations} 
+                onReset={handleReset}
+              />
             </motion.div>
           )}
         </AnimatePresence>

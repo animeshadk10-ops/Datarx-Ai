@@ -39,6 +39,7 @@ class ActionRequest(BaseModel):
     session_id: str
     column: str
     action: RecommendedAction
+    justification: str = ""
 
 
 class ActionResponse(BaseModel):
@@ -60,3 +61,16 @@ class AnalyzeResponse(BaseModel):
     semantic_types: list[ColumnSemantic]
     recommendations: list[Recommendation]
     target_analysis: dict | None = None
+
+class ActionSummary(BaseModel):
+    column: str
+    action: str
+    justification: str
+    before: dict
+    after: dict
+
+class SummaryResponse(BaseModel):
+    original_shape: dict
+    final_shape: dict
+    actions_applied: list[ActionSummary]
+    export_ready: bool

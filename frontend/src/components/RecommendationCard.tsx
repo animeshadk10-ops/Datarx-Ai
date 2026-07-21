@@ -57,7 +57,12 @@ export default function RecommendationCard({
     setIsApplying(true);
     setError(null);
     try {
-      const res = await applyAction(sessionId, rec.column, rec.recommended_action);
+      const res = await applyAction(
+        sessionId,
+        rec.column,
+        rec.recommended_action,
+        rec.justification
+      );
       setResult(res);
       setApplied(true);
       

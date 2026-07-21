@@ -37,7 +37,7 @@ class RawRESTGemini:
         payload = {
             "contents": [{"parts": [{"text": prompt_text}]}]
         }
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        async with httpx.AsyncClient(timeout=600.0) as client:
             resp = await client.post(self.url, json=payload)
             if not resp.is_success:
                 try:

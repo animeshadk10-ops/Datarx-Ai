@@ -127,7 +127,7 @@ Instead of applying a single fixed rule to every column (like filling all missin
 3. **Classify:** The local model rapidly predicts the semantic type of each column. Any low-confidence columns are dynamically escalated to Gemini, equipped with few-shot examples fetched via a sentence transformer.
 4. **Recommend:** Gemini generates specific fixes tied to a strictly constrained enum of operations (e.g., `impute_median`, `clip_outliers`).
 5. **Apply:** You review the recommendations in the UI, check the before/after stats diff, and click "Apply". The backend executes the Pandas operations in memory and re-syncs the global diagnosis state.
-6. **Export:** Once satisfied, you can instantly download the cleansed `.csv`.
+6. **Review & Export:** Before exporting, you are presented with a final **Cleaning Summary Report** that logs every action taken, highlights before/after statistics, and tracks any skipped issues. Once satisfied, you can instantly download the cleansed `.csv`.
 
 ## Model Details
 
